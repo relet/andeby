@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -32,9 +33,9 @@ type Macro struct {
 // a hashtable of macros
 var macros = map[string]Macro{}
 
-func ReadMacroDB() {
+func ReadMacroDB(dbname string) {
 	// open sqlite table macros.db
-	sqlite, err := sql.Open("sqlite3", "macros.db")
+	sqlite, err := sql.Open("sqlite3", dbname)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,9 +69,9 @@ func ReadMacroDB() {
 	}
 }
 
-func UpdateMacroDB(hash string, m Macro) {
+func UpdateMacroDB(dbname string, hash string, m Macro) {
 	// update sqlite table macros.db
-	sqlite, err := sql.Open("sqlite3", "macros.db")
+	sqlite, err := sql.Open("sqlite3", dbname)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func UpdateMacroDB(hash string, m Macro) {
 	}
 }
 
-func RecordContact(id string, hash string, x1 int, y1 int, x2 int, y2 int) {
+func RecordContact(dbname string, id string, hash string, x1 int, y1 int, x2 int, y2 int) {
 	fmt.Printf("recording contact %s from hash %s - x1: %d, y1: %d, x2: %d, y2: %d\n", id, hash, x1, y1, x2, y2)
 
 	// calculate the direction and strength of the swipe
@@ -102,7 +103,7 @@ func RecordContact(id string, hash string, x1 int, y1 int, x2 int, y2 int) {
 
 	// add the macro to the hashtable
 	macros[hash] = Macro{x1, y1, x2, y2, direction, strength}
-	UpdateMacroDB(hash, Macro{x1, y1, x2, y2, direction, strength})
+	UpdateMacroDB(dbname, hash, Macro{x1, y1, x2, y2, direction, strength})
 
 	fmt.Printf("added macro: %s - POS %d %d - STR %d - DIR %f\n", hash, x1, y1, strength, direction)
 }
@@ -110,7 +111,7 @@ func RecordContact(id string, hash string, x1 int, y1 int, x2 int, y2 int) {
 // Analyze checks if the given line contains a hash and executes the corresponding macro
 func ScrcpyAnalyze(line string) {
 	hash := line
-	if hash == GetCurrentHash() {
+	if hash == GetCurrentHash() || hash == "" {
 		return
 	}
 	SetCurrentHash(hash)
@@ -166,7 +167,7 @@ func SetCurrentHash(hash string) {
 	currentHash = hash
 }
 
-func GeteventAnalyze(line string) {
+func GeteventAnalyze(dbname string, line string) {
 	split := strings.Split(line, " ")
 	if len(split) < 3 {
 		return
@@ -188,7 +189,7 @@ func GeteventAnalyze(line string) {
 	// get contact id and record current hash at this point in time
 	if type_ == 3 && code == 0x39 {
 		if value == 0xffffffff {
-			RecordContact(GetContactId(), GetContactHash(), startX, startY, endX, endY)
+			RecordContact(dbname, GetContactId(), GetContactHash(), startX, startY, endX, endY)
 			SetContactHash("")
 			SetContactId("")
 			return
@@ -227,7 +228,12 @@ func GeteventAnalyze(line string) {
 }
 
 func main() {
-	ReadMacroDB()
+	dbname := "macros.db"
+	if len(os.Args) > 1 {
+		dbname = os.Args[1]
+	}
+
+	ReadMacroDB(dbname)
 
 	// execute the command "adb shell getevent /dev/input/event9" and read each line from stdout
 	cmd1 := exec.Command("adb", "shell", "getevent", "/dev/input/event9")
@@ -260,7 +266,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		for scanner1.Scan() {
-			GeteventAnalyze(scanner1.Text())
+			GeteventAnalyze(dbname, scanner1.Text())
 		}
 	}()
 	wg.Wait()

@@ -1,4 +1,4 @@
-module github.com/relet/androbot
+module github.com/relet/andeby
 
 go 1.22.0
 
